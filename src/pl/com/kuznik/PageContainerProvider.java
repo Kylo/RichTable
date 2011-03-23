@@ -1,7 +1,6 @@
 package pl.com.kuznik;
 
 import com.vaadin.data.Container;
-import com.vaadin.data.Container.Indexed;
 import com.vaadin.data.Item;
 import com.vaadin.data.util.IndexedContainer;
 
