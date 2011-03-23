@@ -83,4 +83,16 @@ public class PageContainerProvider {
     private boolean isPageAvailable(int pageNumber) {
         return pageNumber < numberOfPages;
     }
+
+    void sort(Object sortContainerPropertyId, boolean sortAscending) {
+        final Container c = dataContainer;
+        if (c instanceof Container.Sortable) {
+            ((Container.Sortable) c).sort(
+                    new Object[]{sortContainerPropertyId},
+                    new boolean[]{sortAscending});
+        } else if (c != null) {
+            throw new UnsupportedOperationException(
+                    "Underlying Data does not allow sorting");
+        }
+    }
 }

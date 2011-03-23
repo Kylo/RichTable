@@ -1,10 +1,13 @@
 package pl.com.kuznik;
 
 import com.vaadin.data.Container;
+import com.vaadin.data.Property;
+import com.vaadin.data.util.IndexedContainer;
 import com.vaadin.event.FieldEvents.FocusEvent;
 import com.vaadin.event.FieldEvents.FocusListener;
 import com.vaadin.ui.Button;
 import com.vaadin.ui.Button.ClickEvent;
+import com.vaadin.ui.ComboBox;
 import com.vaadin.ui.Component;
 import com.vaadin.ui.HorizontalLayout;
 import com.vaadin.ui.Table;
@@ -20,9 +23,10 @@ import java.util.Set;
 public class RichTable extends Table {
 
     private boolean paginated = true;
-    private int itemsPerPage = 15;
+    private PageContainerProvider pageProvider;
+    private Container originalContainer;
     private Set<DataSourceChangedListener> dataSourceChangeListeners;
-    private Paginator paginator = new Paginator();
+    private Paginator paginator;
     private final ControlPanel controlPanel = new ControlPanel();
 
     public RichTable() {
@@ -41,17 +45,41 @@ public class RichTable extends Table {
         return controlPanel;
     }
 
-    public Component getPaginator() {
+    private Paginator getPaginator() {
+        if (paginator == null) {
+            paginator = new Paginator();
+        }
         return paginator;
     }
-    private PageContainerProvider pageProvider;
+
+    private PageContainerProvider getPageProvider() {
+        if (pageProvider == null) {
+            pageProvider = new PageContainerProvider(new IndexedContainer(), 0);
+        }
+        return pageProvider;
+    }
 
     @Override
     public void setContainerDataSource(Container newDataSource) {
-        // TODO check instanceof Container Indexed
-        pageProvider = new PageContainerProvider((Container.Indexed) newDataSource, itemsPerPage);
-        super.setContainerDataSource(pageProvider.getPageContainer(1));
-        notifyDataSourceChanged();
+        if (paginated) {
+            // TODO check instanceof Container Indexed
+            originalContainer = newDataSource;
+            pageProvider = new PageContainerProvider((Container.Indexed) newDataSource, getPaginator().getItemsPerPage());
+            super.setContainerDataSource(pageProvider.getPageContainer(getPaginator().getCurrentPage()));
+            notifyDataSourceChanged();
+        } else {
+            super.setContainerDataSource(newDataSource);
+        }
+    }
+
+    @Override
+    public void sort() {
+        if (paginated) {
+            getPageProvider().sort(getSortContainerPropertyId(), isSortAscending());
+            notifyDataSourceChanged();
+        } else {
+            super.sort();
+        }
     }
 
     private LinkedHashMap<Object, Boolean> getColumnsState() {
@@ -89,8 +117,10 @@ public class RichTable extends Table {
 
     private class Paginator
             extends HorizontalLayout
-            implements Button.ClickListener, RichTable.DataSourceChangedListener, FocusListener {
+            implements Button.ClickListener, RichTable.DataSourceChangedListener,
+            FocusListener, Property.ValueChangeListener {
 
+        private ComboBox itemsPerPageCombo = new ComboBox();
         private Button firstPageButton = new Button("<<");
         private Button previousPageButton = new Button("<");
         private Button nextPageButton = new Button(">");
@@ -98,8 +128,19 @@ public class RichTable extends Table {
         private TextField pageNumberText = new TextField();
         private Button goToPageButton = new Button("GO");
         private int currentPage = 1;
+        private int itemsPerPage;
+        private final Integer[] itemsPerPageValues = {10, 20, 30, 50, 100, 200, 300, 500, 1000};
 
         public Paginator() {
+            itemsPerPage = itemsPerPageValues[0];
+
+            addComponent(itemsPerPageCombo);
+            itemsPerPageCombo.setNullSelectionAllowed(false);
+            for (Integer number : itemsPerPageValues) {
+                itemsPerPageCombo.addItem(number);
+            }
+            itemsPerPageCombo.setImmediate(true);
+
             addComponent(firstPageButton);
             firstPageButton.addListener((Button.ClickListener) this);
             addComponent(previousPageButton);
@@ -113,23 +154,43 @@ public class RichTable extends Table {
             pageNumberText.addListener((FocusListener) this);
 
             addComponent(goToPageButton);
-            goToPageButton.addListener((Button.ClickListener)this);
+            goToPageButton.addListener((Button.ClickListener) this);
             updateUI();
         }
 
-        public void buttonClick(ClickEvent event) {
-            final Button source = event.getButton();
-            if (source == firstPageButton) {
-                goToFirstPage();
-            } else if (source == previousPageButton) {
-                goToPreviousPage();
-            } else if (source == nextPageButton) {
-                goToNextPage();
-            } else if (source == lastPageButton) {
-                goToLastPage();
-            } else if (source == goToPageButton) {
-                setPage(parsePageToGoText(pageNumberText.toString()));
+        private void updateUI() {
+            itemsPerPageCombo.setValue(itemsPerPage);
+            itemsPerPageCombo.addListener((Property.ValueChangeListener) this);
+
+            pageNumberText.setValue(getCurrentPageText());
+
+            boolean isFirstPage = (currentPage == 1);
+            firstPageButton.setEnabled(!isFirstPage);
+            previousPageButton.setEnabled(!isFirstPage);
+
+            boolean isLastPage = (currentPage == pageProvider.getLastPageNumber());
+            lastPageButton.setEnabled(!isLastPage);
+            nextPageButton.setEnabled(!isLastPage);
+        }
+
+        public int getItemsPerPage() {
+            return itemsPerPage;
+        }
+
+        public int getCurrentPage() {
+            return currentPage;
+        }
+
+        private void changeItemsPerPage(int newItemsPerPage) {
+            if (newItemsPerPage == itemsPerPage) {
+                return;
             }
+            itemsPerPage = newItemsPerPage;
+            currentPage = 1;
+            LinkedHashMap<Object, Boolean> columnsState = getColumnsState();
+            setContainerDataSource(originalContainer);
+            restoreColumnsState(columnsState);
+            updateUI();
         }
 
         // <editor-fold defaultstate="collapsed" desc="Page manipulation">
@@ -142,7 +203,7 @@ public class RichTable extends Table {
                 currentPage = page;
             }
             LinkedHashMap<Object, Boolean> columnsState = getColumnsState();
-            RichTable.super.setContainerDataSource(pageProvider.getPageContainer(currentPage));
+            RichTable.super.setContainerDataSource(getPageProvider().getPageContainer(currentPage));
             restoreColumnsState(columnsState);
             updateUI();
         }
@@ -165,7 +226,7 @@ public class RichTable extends Table {
         // </editor-fold>
 
         private String getCurrentPageText() {
-            return currentPage + " / " + pageProvider.getLastPageNumber();
+            return currentPage + " / " + getPageProvider().getLastPageNumber();
         }
 
         private int getCurrentPageTextLength() {
@@ -180,20 +241,24 @@ public class RichTable extends Table {
             }
         }
 
-        public void dataSourceChanged() {
-            updateUI();
+        public void buttonClick(ClickEvent event) {
+            final Button source = event.getButton();
+            if (source == firstPageButton) {
+                goToFirstPage();
+            } else if (source == previousPageButton) {
+                goToPreviousPage();
+            } else if (source == nextPageButton) {
+                goToNextPage();
+            } else if (source == lastPageButton) {
+                goToLastPage();
+            } else if (source == goToPageButton) {
+                setPage(parsePageToGoText(pageNumberText.toString()));
+            }
         }
 
-        private void updateUI() {
-            pageNumberText.setValue(getCurrentPageText());
-
-            boolean isFirstPage = (currentPage == 1);
-            firstPageButton.setEnabled(!isFirstPage);
-            previousPageButton.setEnabled(!isFirstPage);
-
-            boolean isLastPage = (currentPage == pageProvider.getLastPageNumber());
-            lastPageButton.setEnabled(!isLastPage);
-            nextPageButton.setEnabled(!isLastPage);
+        public void dataSourceChanged() {
+            setPage(currentPage);
+            updateUI();
         }
 
         public void focus(FocusEvent event) {
@@ -201,6 +266,10 @@ public class RichTable extends Table {
             if (source == pageNumberText) {
                 pageNumberText.setSelectionRange(0, getCurrentPageTextLength());
             }
+        }
+
+        public void valueChange(Property.ValueChangeEvent event) {
+            changeItemsPerPage((Integer) event.getProperty().getValue());
         }
     }
 
