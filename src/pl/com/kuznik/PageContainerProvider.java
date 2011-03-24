@@ -3,6 +3,7 @@ package pl.com.kuznik;
 import com.vaadin.data.Container;
 import com.vaadin.data.Item;
 import com.vaadin.data.util.IndexedContainer;
+import java.util.Collection;
 
 /**
  *
@@ -64,20 +65,31 @@ public class PageContainerProvider {
         return Math.min((page + 1) * itemsPerPage, dataContainer.size());
     }
 
-    private void copyItemsToContainer(IndexedContainer container, int start, int stop) {
+    private void copyItemsToContainer(Container container, int start, int stop) {
         for (int i = start; i < stop; ++i) {
             Object id = dataContainer.getIdByIndex(i);
             copyItemToContainer(id, container);
         }
     }
 
-    private void copyItemToContainer(Object itemId, IndexedContainer container) {
+    private void copyItemToContainer(Object itemId, Container container) {
         Item realItem = dataContainer.getItem(itemId);
         Item shownItem = container.addItem(itemId);
         for (Object property : dataContainer.getContainerPropertyIds()) {
             shownItem.getItemProperty(property).setValue(
                     realItem.getItemProperty(property).getValue());
         }
+    }
+
+    public void hideRows(Collection<?> rows) {
+        for (Object item : rows) {
+            currentContainer.removeItem(item);
+        }
+    }
+
+    public void showHiddenRows() {
+        currentContainer.removeAllItems();
+        copyItemsToContainer(currentContainer, firstRowIdx(currentPageNumber), lastRowIdx(currentPageNumber));
     }
 
     private boolean isPageAvailable(int pageNumber) {

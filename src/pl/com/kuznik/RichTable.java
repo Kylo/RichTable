@@ -12,6 +12,7 @@ import com.vaadin.ui.Component;
 import com.vaadin.ui.HorizontalLayout;
 import com.vaadin.ui.Table;
 import com.vaadin.ui.TextField;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Set;
@@ -27,6 +28,7 @@ public class RichTable extends Table {
     private Container originalContainer;
     private Set<DataSourceChangedListener> dataSourceChangeListeners;
     private Paginator paginator;
+    private RowHider hider;
     private final ControlPanel controlPanel = new ControlPanel();
 
     public RichTable() {
@@ -37,8 +39,9 @@ public class RichTable extends Table {
         // enable multiselect by default
         setMultiSelect(true);
 
-        // TODO check if table is paginated
-        addListener((DataSourceChangedListener) paginator);
+        // TODO check if table is paginated and has hiding enabled
+        addListener((DataSourceChangedListener) getPaginator());
+        addListener((DataSourceChangedListener) getHider());
     }
 
     public ControlPanel getControlPanel() {
@@ -50,6 +53,13 @@ public class RichTable extends Table {
             paginator = new Paginator();
         }
         return paginator;
+    }
+
+    private RowHider getHider() {
+        if (hider == null) {
+            hider = new RowHider();
+        }
+        return hider;
     }
 
     private PageContainerProvider getPageProvider() {
@@ -273,12 +283,89 @@ public class RichTable extends Table {
         }
     }
 
+    private class RowHider
+            extends HorizontalLayout
+            implements Button.ClickListener, RichTable.DataSourceChangedListener {
+
+        private final String SHOW_BUTTON_LABEL = "Show hidden";
+
+        private Button hideButton = new Button("Hide selected");
+        private Button showButton = new Button(SHOW_BUTTON_LABEL);
+        private int hiddenRowsCount = 0;
+
+        public RowHider() {
+            addComponent(hideButton);
+            hideButton.addListener((Button.ClickListener) this);
+            addComponent(showButton);
+            showButton.addListener((Button.ClickListener) this);
+            updateUI();
+        }
+
+        public void buttonClick(ClickEvent event) {
+            Button source = event.getButton();
+            if (source == hideButton) {
+                hideSelectedRows();
+            } else if (source == showButton) {
+                showHiddenRows();
+            }
+        }
+
+        private void addHiddenRows(int count) {
+            hiddenRowsCount += count;
+        }
+
+        private String createHiddenRowsText() {
+            return areRowsHidden() ? " (" + getHiddenRowsCount() + ")" : "";
+        }
+
+        private void resetHiddenRowsCount() {
+            hiddenRowsCount = 0;
+        }
+
+        private boolean areRowsHidden() {
+            return hiddenRowsCount > 0;
+        }
+
+        public int getHiddenRowsCount() {
+            return hiddenRowsCount;
+        }
+
+        private void hideSelectedRows() {
+            Object value = RichTable.this.getValue();
+            if (value instanceof Collection) {
+                Collection<?> rowset = (Collection<?>) value;
+                pageProvider.hideRows(rowset);
+                addHiddenRows(rowset.size());
+            }
+            RichTable.this.setValue(null);
+            updateUI();
+        }
+
+        private void showHiddenRows() {
+            if (areRowsHidden()) {
+                RichTable.this.disableContentRefreshing();
+                pageProvider.showHiddenRows();
+                RichTable.this.enableContentRefreshing(true);
+                resetHiddenRowsCount();
+                updateUI();
+            }
+        }
+
+        private void updateUI() {
+            showButton.setEnabled(areRowsHidden());
+            showButton.setCaption(SHOW_BUTTON_LABEL + createHiddenRowsText());
+        }
+
+        public void dataSourceChanged() {
+            resetHiddenRowsCount();
+            updateUI();
+        }
+    }
+
     public class ControlPanel extends HorizontalLayout {
 
-        private Button hideButton = new Button("Hide");
-
         ControlPanel() {
-            addComponent(hideButton);
+            addComponent(getHider());
             addComponent(getPaginator());
         }
     }
