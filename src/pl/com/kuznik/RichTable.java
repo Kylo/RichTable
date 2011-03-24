@@ -3,18 +3,28 @@ package pl.com.kuznik;
 import com.vaadin.data.Container;
 import com.vaadin.data.Property;
 import com.vaadin.data.util.IndexedContainer;
+import com.vaadin.event.Action;
+import com.vaadin.event.Action.Handler;
 import com.vaadin.event.FieldEvents.FocusEvent;
 import com.vaadin.event.FieldEvents.FocusListener;
+import com.vaadin.event.ItemClickEvent;
+import com.vaadin.event.ItemClickEvent.ItemClickListener;
+import com.vaadin.event.ShortcutAction;
 import com.vaadin.ui.Button;
 import com.vaadin.ui.Button.ClickEvent;
 import com.vaadin.ui.ComboBox;
 import com.vaadin.ui.Component;
+import com.vaadin.ui.DefaultFieldFactory;
+import com.vaadin.ui.Field;
+import com.vaadin.ui.Form;
 import com.vaadin.ui.HorizontalLayout;
 import com.vaadin.ui.Table;
+import com.vaadin.ui.TableFieldFactory;
 import com.vaadin.ui.TextField;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.Set;
 
 /**
@@ -24,11 +34,14 @@ import java.util.Set;
 public class RichTable extends Table {
 
     private boolean paginated = true;
+    private boolean editable = true;
+    private boolean selectable = true;
     private PageContainerProvider pageProvider;
     private Container originalContainer;
     private Set<DataSourceChangedListener> dataSourceChangeListeners;
     private Paginator paginator;
     private RowHider hider;
+    private RowEditor editor;
     private final ControlPanel controlPanel = new ControlPanel();
 
     public RichTable() {
@@ -39,9 +52,20 @@ public class RichTable extends Table {
         // enable multiselect by default
         setMultiSelect(true);
 
+        setWriteThrough(false);
+        setImmediate(false);
+
         // TODO check if table is paginated and has hiding enabled
         addListener((DataSourceChangedListener) getPaginator());
         addListener((DataSourceChangedListener) getHider());
+        addListener((Property.ValueChangeListener) getHider());
+        addListener((ItemClickListener) getEditor());
+    }
+
+    @Override
+    public void attach() {
+        super.attach();
+        getWindow().addActionHandler(editor);
     }
 
     public ControlPanel getControlPanel() {
@@ -62,11 +86,24 @@ public class RichTable extends Table {
         return hider;
     }
 
+    private RowEditor getEditor() {
+        if (editor == null) {
+            editor = new RowEditor();
+        }
+        return editor;
+    }
+
     private PageContainerProvider getPageProvider() {
         if (pageProvider == null) {
             pageProvider = new PageContainerProvider(new IndexedContainer(), 0);
         }
         return pageProvider;
+    }
+
+    @Override
+    public void setSelectable(boolean selectable) {
+        this.selectable = selectable;
+        super.setSelectable(selectable);
     }
 
     @Override
@@ -279,16 +316,17 @@ public class RichTable extends Table {
         }
 
         public void valueChange(Property.ValueChangeEvent event) {
-            changeItemsPerPage((Integer) event.getProperty().getValue());
+            if (event.getProperty() == itemsPerPageCombo) {
+                changeItemsPerPage((Integer) event.getProperty().getValue());
+            }
         }
     }
 
     private class RowHider
             extends HorizontalLayout
-            implements Button.ClickListener, RichTable.DataSourceChangedListener {
+            implements Button.ClickListener, RichTable.DataSourceChangedListener, Property.ValueChangeListener {
 
         private final String SHOW_BUTTON_LABEL = "Show hidden";
-
         private Button hideButton = new Button("Hide selected");
         private Button showButton = new Button(SHOW_BUTTON_LABEL);
         private int hiddenRowsCount = 0;
@@ -326,6 +364,18 @@ public class RichTable extends Table {
             return hiddenRowsCount > 0;
         }
 
+        private boolean areRowsSelected() {
+            Object value = RichTable.this.getValue();
+            if (value == null) {
+                return false;
+            }
+            if (value instanceof Collection) {
+                return ((Collection<?>) value).size() > 0;
+            } else {
+                return false;
+            }
+        }
+
         public int getHiddenRowsCount() {
             return hiddenRowsCount;
         }
@@ -352,6 +402,7 @@ public class RichTable extends Table {
         }
 
         private void updateUI() {
+            hideButton.setEnabled(areRowsSelected());
             showButton.setEnabled(areRowsHidden());
             showButton.setCaption(SHOW_BUTTON_LABEL + createHiddenRowsText());
         }
@@ -359,6 +410,97 @@ public class RichTable extends Table {
         public void dataSourceChanged() {
             resetHiddenRowsCount();
             updateUI();
+        }
+
+        public void valueChange(Property.ValueChangeEvent event) {
+            updateUI();
+        }
+    }
+
+    private class RowEditor
+            implements ItemClickListener, Handler {
+
+        private Action submit_action = new ShortcutAction("Default", ShortcutAction.KeyCode.ENTER, null);
+        private Action discard_action = new ShortcutAction("Escape", ShortcutAction.KeyCode.ESCAPE, null);
+        private Object currentlyEditedItem = null;
+        private LinkedList<Field> fields = null;
+
+        public void itemClick(ItemClickEvent event) {
+            if (event.isDoubleClick()) {
+                final Object newItemId = event.getItemId();
+                if (newItemId != currentlyEditedItem) {
+                    discardChanges();
+                }
+                currentlyEditedItem = newItemId;
+                fields = new LinkedList<Field>();
+                RichTable.this.setTableFieldFactory(new TableFieldFactory() {
+
+                    public Field createField(Container container, Object itemId,
+                            Object propertyId, Component uiContext) {
+
+                        if (itemId == newItemId) {
+                            Field field = DefaultFieldFactory.createFieldByPropertyType(
+                                    container.getItem(itemId).getItemProperty(propertyId).getType());
+                            fields.add(field);
+                            field.setWriteThrough(false);
+                            field.setPropertyDataSource(container.getItem(itemId).getItemProperty(propertyId));
+                            return field;
+                        }
+                        return null;
+                    }
+                });
+                goToEditMode();
+            }
+        }
+
+        public Action[] getActions(Object target, Object sender) {
+            return new Action[]{submit_action, discard_action};
+        }
+
+        public void handleAction(Action action, Object sender, Object target) {
+            if (action == submit_action) {
+                commitChanges();
+                goOutEditMode();
+            } else if (action == discard_action) {
+                discardChanges();
+                goOutEditMode();
+            }
+        }
+
+        private void goToEditMode() {
+            RichTable.this.setValue(null); // ensure notifying all PropertyChangeListeners
+            RichTable.super.setSelectable(false); // use super-implementation to avoid overwriting private field
+            RichTable.this.setEditable(true);
+            getWindow().showNotification("In 'Edit' mode.", "Hit RETURN to accept.");
+        }
+
+        private void goOutEditMode() {
+            RichTable.this.setEditable(false);
+            RichTable.super.setSelectable(RichTable.this.selectable);
+        }
+
+        private void discardChanges() {
+            if (currentlyEditedItem == null) {
+                return;
+            }
+            for (Field field : fields) {
+                if (field != null) { // non-editable fields can be null
+                    field.discard();
+                }
+            }
+            currentlyEditedItem = null;
+        }
+
+        private void commitChanges() {
+            if (currentlyEditedItem == null) {
+                return;
+            }
+            for (Field field : fields) {
+                if (field != null && field.isValid()) {  // non-editable fields can be null
+                    field.commit();
+                }
+            }
+            currentlyEditedItem = null;
         }
     }
 

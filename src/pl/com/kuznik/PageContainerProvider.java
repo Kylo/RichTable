@@ -9,7 +9,7 @@ import java.util.Collection;
  *
  * @author Krzysztof Kuźnik <kmkuznik at gmail.com>
  */
-public class PageContainerProvider {
+public class PageContainerProvider implements Container.PropertySetChangeListener {
 
     private final Container.Indexed dataContainer;
     private final int itemsPerPage;
@@ -33,6 +33,7 @@ public class PageContainerProvider {
             return null;
         }
         currentContainer = fillCurrentContainer();
+
         return currentContainer;
     }
 
@@ -54,6 +55,7 @@ public class PageContainerProvider {
             container.addContainerProperty(object, dataContainer.getType(object), null);
         }
         copyItemsToContainer(container, firstRowIdx(currentPageNumber), lastRowIdx(currentPageNumber));
+        container.addListener((Container.PropertySetChangeListener) this);
         return container;
     }
 
@@ -106,5 +108,9 @@ public class PageContainerProvider {
             throw new UnsupportedOperationException(
                     "Underlying Data does not allow sorting");
         }
+    }
+
+    public void containerPropertySetChange(Container.PropertySetChangeEvent event) {
+        throw new NullPointerException();
     }
 }
