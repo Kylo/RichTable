@@ -16,7 +16,6 @@ import com.vaadin.ui.ComboBox;
 import com.vaadin.ui.Component;
 import com.vaadin.ui.DefaultFieldFactory;
 import com.vaadin.ui.Field;
-import com.vaadin.ui.Form;
 import com.vaadin.ui.HorizontalLayout;
 import com.vaadin.ui.Table;
 import com.vaadin.ui.TableFieldFactory;
@@ -60,6 +59,9 @@ public class RichTable extends Table {
         addListener((DataSourceChangedListener) getHider());
         addListener((Property.ValueChangeListener) getHider());
         addListener((ItemClickListener) getEditor());
+
+        // TODO check if table is paginated
+        getPaginator().addListener((PageChangedListener) getHider());
     }
 
     @Override
@@ -165,7 +167,7 @@ public class RichTable extends Table {
     private class Paginator
             extends HorizontalLayout
             implements Button.ClickListener, RichTable.DataSourceChangedListener,
-            FocusListener, Property.ValueChangeListener {
+            FocusListener, Property.ValueChangeListener, PageChangedListener {
 
         private ComboBox itemsPerPageCombo = new ComboBox();
         private Button firstPageButton = new Button("<<");
@@ -177,6 +179,7 @@ public class RichTable extends Table {
         private int currentPage = 1;
         private int itemsPerPage;
         private final Integer[] itemsPerPageValues = {10, 20, 30, 50, 100, 200, 300, 500, 1000};
+        private Set<PageChangedListener> pageChangeListeners = null;
 
         public Paginator() {
             itemsPerPage = itemsPerPageValues[0];
@@ -202,6 +205,8 @@ public class RichTable extends Table {
 
             addComponent(goToPageButton);
             goToPageButton.addListener((Button.ClickListener) this);
+
+            addListener((PageChangedListener) this);
             updateUI();
         }
 
@@ -252,7 +257,7 @@ public class RichTable extends Table {
             LinkedHashMap<Object, Boolean> columnsState = getColumnsState();
             RichTable.super.setContainerDataSource(getPageProvider().getPageContainer(currentPage));
             restoreColumnsState(columnsState);
-            updateUI();
+            firePageChanged();
         }
 
         private void goToNextPage() {
@@ -288,6 +293,23 @@ public class RichTable extends Table {
             }
         }
 
+        public void addListener(PageChangedListener listener) {
+            getPageChangeListeners().add(listener);
+        }
+
+        private Set<PageChangedListener> getPageChangeListeners() {
+            if (pageChangeListeners == null) {
+                pageChangeListeners = new HashSet<PageChangedListener>();
+            }
+            return pageChangeListeners;
+        }
+
+        private void firePageChanged() {
+            for (PageChangedListener pageChangedListener : getPageChangeListeners()) {
+                pageChangedListener.pageChanged();
+            }
+        }
+
         public void buttonClick(ClickEvent event) {
             final Button source = event.getButton();
             if (source == firstPageButton) {
@@ -320,11 +342,16 @@ public class RichTable extends Table {
                 changeItemsPerPage((Integer) event.getProperty().getValue());
             }
         }
+
+        public void pageChanged() {
+            updateUI();
+        }
     }
 
     private class RowHider
             extends HorizontalLayout
-            implements Button.ClickListener, RichTable.DataSourceChangedListener, Property.ValueChangeListener {
+            implements Button.ClickListener, RichTable.DataSourceChangedListener,
+            Property.ValueChangeListener, PageChangedListener {
 
         private final String SHOW_BUTTON_LABEL = "Show hidden";
         private Button hideButton = new Button("Hide selected");
@@ -413,6 +440,11 @@ public class RichTable extends Table {
         }
 
         public void valueChange(Property.ValueChangeEvent event) {
+            updateUI();
+        }
+
+        public void pageChanged() {
+            resetHiddenRowsCount();
             updateUI();
         }
     }
@@ -515,5 +547,10 @@ public class RichTable extends Table {
     private interface DataSourceChangedListener {
 
         public void dataSourceChanged();
+    }
+
+    private interface PageChangedListener {
+
+        public void pageChanged();
     }
 }
