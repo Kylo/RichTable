@@ -2,14 +2,16 @@ package pl.com.kuznik;
 
 import com.vaadin.data.Container;
 import com.vaadin.data.Item;
+import com.vaadin.data.Property;
 import com.vaadin.data.util.IndexedContainer;
+import java.lang.reflect.Field;
 import java.util.Collection;
 
 /**
  *
  * @author Krzysztof Kuźnik <kmkuznik at gmail.com>
  */
-public class PageContainerProvider implements Container.PropertySetChangeListener {
+public class PageContainerProvider implements Property.ValueChangeListener {
 
     private final Container.Indexed dataContainer;
     private final int itemsPerPage;
@@ -50,12 +52,13 @@ public class PageContainerProvider implements Container.PropertySetChangeListene
     }
 
     private Container fillCurrentContainer() {
+        // If you change IndexContainer make sure that valueChange(Property.ValueChangeEvent) method works well
         IndexedContainer container = new IndexedContainer();
         for (Object object : dataContainer.getContainerPropertyIds()) {
             container.addContainerProperty(object, dataContainer.getType(object), null);
         }
         copyItemsToContainer(container, firstRowIdx(currentPageNumber), lastRowIdx(currentPageNumber));
-        container.addListener((Container.PropertySetChangeListener) this);
+        container.addListener((Property.ValueChangeListener) this);
         return container;
     }
 
@@ -110,7 +113,27 @@ public class PageContainerProvider implements Container.PropertySetChangeListene
         }
     }
 
-    public void containerPropertySetChange(Container.PropertySetChangeEvent event) {
-        throw new NullPointerException();
+    public void valueChange(Property.ValueChangeEvent event) {
+        // Reflection hack neccessary to access information which item was changed
+        // It is pretty secure because currentContainer is instance of IndexedContainer
+        // which properties provide both fields - itemId and propertyId
+        Property property = event.getProperty();
+        try {
+            Field itemIdField = property.getClass().getDeclaredField("itemId");
+            itemIdField.setAccessible(true);
+            Object itemId = itemIdField.get(property);
+            Field propertyIdField = property.getClass().getDeclaredField("propertyId");
+            propertyIdField.setAccessible(true);
+            Object propertyId = propertyIdField.get(property);
+            dataContainer.getItem(itemId).getItemProperty(propertyId).setValue(property.getValue());
+        } catch (IllegalArgumentException ex) {
+            throw new UnsupportedOperationException("Error while trying to store data", ex);
+        } catch (IllegalAccessException ex) {
+            throw new UnsupportedOperationException("Error while trying to store data", ex);
+        } catch (NoSuchFieldException ex) {
+            throw new UnsupportedOperationException("Error while trying to store data", ex);
+        } catch (SecurityException ex) {
+            throw new UnsupportedOperationException("Error while trying to store data", ex);
+        }
     }
 }
