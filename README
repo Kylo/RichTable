@@ -1,0 +1,9 @@
+RichTable is Vaadin plugin which adds new functions to ordinary Table component
+This includes:
+* pagination
+* in-place editor
+* row hiding
+
+RichTable extends Table class and therefore is able to be easily replaced.
+To use features of RichTable you have to get RichTable.ControlPanel which is
+simply HorizontalLayout. You can place it anywhere you want on your webpage.
