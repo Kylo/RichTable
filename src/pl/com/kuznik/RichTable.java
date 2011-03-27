@@ -27,7 +27,8 @@ import java.util.LinkedList;
 import java.util.Set;
 
 /**
- *
+ * RichTable extends ordinary Table functionality with pagination, in-place
+ * editor and row hiding.
  * @author Krzysztof Kuźnik <kmkuznik at gmail.com>
  */
 public class RichTable extends Table {
@@ -42,6 +43,15 @@ public class RichTable extends Table {
     private RowEditor editor;
     private final ControlPanel controlPanel = new ControlPanel();
 
+    /**
+     * Creates new RichTable which by default has enabled:
+     * <ul>
+     * <li>column collapsing</li>
+     * <li>column reordering</li>
+     * <li>row selection</li>
+     * <li>pagination</li>
+     * </ul>
+     */
     public RichTable() {
         // enable collapsing columns by default
         setColumnCollapsingAllowed(true);
@@ -67,13 +77,22 @@ public class RichTable extends Table {
     @Override
     public void attach() {
         super.attach();
-        getWindow().addActionHandler(editor);
+        getWindow().addActionHandler(getEditor()); // to handle in-place editor commands
     }
 
+    /**
+     * Control panel contains buttons and text fields required to manipulate
+     * RichTable i.e. change pages, hide rows.
+     * @return ControlPanel associated with this RichTable
+     */
     public ControlPanel getControlPanel() {
         return controlPanel;
     }
 
+    /**
+     * paginator lazy getter
+     * @return paginator for this RichTable
+     */
     private Paginator getPaginator() {
         if (paginator == null) {
             paginator = new Paginator();
@@ -81,6 +100,10 @@ public class RichTable extends Table {
         return paginator;
     }
 
+    /**
+     * hider lazy getter
+     * @return hider for this RichTable
+     */
     private RowHider getHider() {
         if (hider == null) {
             hider = new RowHider();
@@ -88,6 +111,10 @@ public class RichTable extends Table {
         return hider;
     }
 
+    /**
+     * In-place row editor lazy getter
+     * @return in-place editor for this RichTable
+     */
     private RowEditor getEditor() {
         if (editor == null) {
             editor = new RowEditor();
@@ -95,6 +122,10 @@ public class RichTable extends Table {
         return editor;
     }
 
+    /**
+     * pageProvider lazy getter
+     * @return pageProvider for this RichTable
+     */
     private PageContainerProvider getPageProvider() {
         if (pageProvider == null) {
             pageProvider = new PageContainerProvider(new IndexedContainer(), 0);
@@ -104,10 +135,15 @@ public class RichTable extends Table {
 
     @Override
     public void setSelectable(boolean selectable) {
+        // selection is turned off during in-place edition so we have to remember user setting
         this.selectable = selectable;
         super.setSelectable(selectable);
     }
 
+    /**
+     * Enables or disables RichTable pagination
+     * @param paginated - true/false
+     */
     public void setPaginated(boolean paginated) {
         if (this.paginated != paginated) {
             this.paginated = paginated;
@@ -119,6 +155,10 @@ public class RichTable extends Table {
         }
     }
 
+    /**
+     * Check whether RichTable is paginated
+     * @return true if table is paginated, false otherwise
+     */
     public boolean isPaginated() {
         return paginated;
     }
@@ -126,6 +166,7 @@ public class RichTable extends Table {
     @Override
     public void setContainerDataSource(Container newDataSource) {
         if (isPaginated()) {
+            // if RichTable is paginated dataSource requires more work
             initializePageProvider(newDataSource);
         } else {
             super.setContainerDataSource(newDataSource);
@@ -136,6 +177,7 @@ public class RichTable extends Table {
     @Override
     public void sort() {
         if (isPaginated()) {
+            // we need to sort underlying container
             getPageProvider().sort(getSortContainerPropertyId(), isSortAscending());
             notifyDataSourceChanged();
         } else {
@@ -143,6 +185,11 @@ public class RichTable extends Table {
         }
     }
 
+    /**
+     * Method to remember columns order and their collapsed state. Required to
+     * keep columns state in all pages the same.
+     * @return columns state
+     */
     private LinkedHashMap<Object, Boolean> getColumnsState() {
         LinkedHashMap<Object, Boolean> result = new LinkedHashMap<Object, Boolean>();
         Object[] order = getVisibleColumns();
@@ -152,6 +199,10 @@ public class RichTable extends Table {
         return result;
     }
 
+    /**
+     * Restores columns state from LinkedHashMap acquired from getColumnsState()
+     * @param columnsState columns state
+     */
     private void restoreColumnsState(LinkedHashMap<Object, Boolean> columnsState) {
         setVisibleColumns(columnsState.keySet().toArray());
         for (Object column : columnsState.keySet()) {
@@ -176,8 +227,12 @@ public class RichTable extends Table {
         }
     }
 
-    private void initializePageProvider(Container newDataSource) {
-        originalContainer = newDataSource;
+    /**
+     * Initializes new pageProvider for dataSource
+     * @param dataSource
+     */
+    private void initializePageProvider(Container dataSource) {
+        originalContainer = dataSource;
         if (originalContainer instanceof Container.Indexed) {
             pageProvider = new PageContainerProvider((Container.Indexed) originalContainer,
                     getPaginator().getItemsPerPage());
@@ -188,6 +243,9 @@ public class RichTable extends Table {
         }
     }
 
+    /**
+     * Class responsible for manipulating RichTable pages
+     */
     private class Paginator
             extends HorizontalLayout
             implements Button.ClickListener, RichTable.DataSourceChangedListener,
@@ -206,6 +264,7 @@ public class RichTable extends Table {
         private Set<PageChangedListener> pageChangeListeners = null;
 
         public Paginator() {
+            // 10 items per page by default
             itemsPerPage = itemsPerPageValues[0];
 
             addComponent(itemsPerPageCombo);
@@ -234,6 +293,9 @@ public class RichTable extends Table {
             updateUI();
         }
 
+        /**
+         * Updates buttons state according to current page
+         */
         private void updateUI() {
             itemsPerPageCombo.setValue(itemsPerPage);
             itemsPerPageCombo.addListener((Property.ValueChangeListener) this);
@@ -264,6 +326,7 @@ public class RichTable extends Table {
             itemsPerPage = newItemsPerPage;
             currentPage = 1;
             LinkedHashMap<Object, Boolean> columnsState = getColumnsState();
+            // changing itemsPerPage eventually ands up in reinstantiation of pageProvider
             setContainerDataSource(originalContainer);
             restoreColumnsState(columnsState);
             updateUI();
@@ -305,6 +368,7 @@ public class RichTable extends Table {
             return currentPage + " / " + getPageProvider().getLastPageNumber();
         }
 
+        // helper method to evaluate selection length
         private int getCurrentPageTextLength() {
             return Integer.toString(currentPage).length();
         }
@@ -354,6 +418,7 @@ public class RichTable extends Table {
             updateUI();
         }
 
+        // select page number on focus
         public void focus(FocusEvent event) {
             Component source = event.getComponent();
             if (source == pageNumberText) {
@@ -372,6 +437,9 @@ public class RichTable extends Table {
         }
     }
 
+    /**
+     * class responsible for hiding rows
+     */
     private class RowHider
             extends HorizontalLayout
             implements Button.ClickListener, RichTable.DataSourceChangedListener,
@@ -403,6 +471,7 @@ public class RichTable extends Table {
             hiddenRowsCount += count;
         }
 
+        // helper method for showButton caption
         private String createHiddenRowsText() {
             return areRowsHidden() ? " (" + getHiddenRowsCount() + ")" : "";
         }
@@ -444,6 +513,8 @@ public class RichTable extends Table {
 
         private void showHiddenRows() {
             if (areRowsHidden()) {
+                // rows are added one after one so its better to disable immediate
+                // content refreshing
                 RichTable.this.disableContentRefreshing();
                 pageProvider.showHiddenRows();
                 RichTable.this.enableContentRefreshing(true);
@@ -473,6 +544,9 @@ public class RichTable extends Table {
         }
     }
 
+    /**
+     * class responsible for in-place row edition
+     */
     private class RowEditor
             implements ItemClickListener, Handler {
 
@@ -482,6 +556,7 @@ public class RichTable extends Table {
         private LinkedList<Field> fields = null;
 
         public void itemClick(ItemClickEvent event) {
+            // double-click starts edition
             if (event.isDoubleClick()) {
                 final Object newItemId = event.getItemId();
                 if (newItemId != currentlyEditedItem) {
@@ -500,9 +575,9 @@ public class RichTable extends Table {
                             fields.add(field);
                             field.setWriteThrough(false);
                             field.setPropertyDataSource(container.getItem(itemId).getItemProperty(propertyId));
-                            return field;
+                            return field; // returns field appropriate for edition
                         }
-                        return null;
+                        return null; // edition will not be possible
                     }
                 });
                 goToEditMode();
@@ -513,6 +588,7 @@ public class RichTable extends Table {
             return new Action[]{submit_action, discard_action};
         }
 
+        // enter saves escape discards
         public void handleAction(Action action, Object sender, Object target) {
             if (action == submit_action) {
                 commitChanges();

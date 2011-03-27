@@ -9,7 +9,7 @@ import java.lang.reflect.Field;
 import java.util.Collection;
 
 /**
- *
+ * Instances of this class serve pages based on original container
  * @author Krzysztof Kuźnik <kmkuznik at gmail.com>
  */
 public class PageContainerProvider {
@@ -19,15 +19,29 @@ public class PageContainerProvider {
     private int currentPageNumber = 0;
     private ProxyPageContainer currentContainer;
 
+    /**
+     * Creates new provider with dataContainer and itemsPerPage
+     * @param dataContainer
+     * @param itemsPerPage
+     */
     public PageContainerProvider(Container.Indexed dataContainer, int itemsPerPage) {
         this.dataContainer = dataContainer;
         this.itemsPerPage = itemsPerPage;
     }
 
+    /**
+     * Creates new provider with default 100 items per page
+     * @param dataContainer
+     */
     public PageContainerProvider(Container.Indexed dataContainer) {
         this(dataContainer, 100);
     }
 
+    /**
+     * Creates container representing one page
+     * @param pageNumber number of page to retrieve
+     * @return container representing one page (pageNumber) or null if pageNumber is not valid page
+     */
     public Container getPageContainer(int pageNumber) {
         currentPageNumber = pageNumber - 1;
         if (!isPageAvailable(currentPageNumber)) {
@@ -41,10 +55,18 @@ public class PageContainerProvider {
         return currentContainer;
     }
 
+    /**
+     *
+     * @return number of last page (1..MAX_PAGE)
+     */
     public int getLastPageNumber() {
         return getNumberOfPages();
     }
 
+    /**
+     *
+     * @return total number of pages
+     */
     private int getNumberOfPages() {
         if (itemsPerPage <= 0 || dataContainer.size() == 0) {
             return 1;
@@ -53,10 +75,17 @@ public class PageContainerProvider {
         }
     }
 
+    /**
+     * Hides rows supplied in parameter
+     * @param rows rows to be hidden
+     */
     public void hideRows(Collection<?> rows) {
         currentContainer.hideRows(rows);
     }
 
+    /**
+     * shows all hidden rows
+     */
     public void showHiddenRows() {
         currentContainer.showHiddenRows();
     }
@@ -65,6 +94,13 @@ public class PageContainerProvider {
         return pageNumber < getNumberOfPages();
     }
 
+    /**
+     * Performs sorting on underlying container if it is possible
+     * @param sortContainerPropertyId sorting key
+     * @param sortAscending true if ascending, false otherwise
+     *
+     * @throws UnsupportedOperationException if underlying container does not support sorting
+     */
     void sort(Object sortContainerPropertyId, boolean sortAscending) {
         final Container c = dataContainer;
         if (c instanceof Container.Sortable) {
@@ -77,6 +113,10 @@ public class PageContainerProvider {
         }
     }
 
+    /**
+     * class responsible for synchronizing data between current page and
+     * original container
+     */
     private class DataSynchronizer implements Property.ValueChangeListener {
 
         private Container eventDestination;
@@ -88,6 +128,8 @@ public class PageContainerProvider {
         public void valueChange(ValueChangeEvent event) {
             Property property = event.getProperty();
             try {
+                // hack with reflection necessary to access information on
+                // propertyId and itemId. It is safe on IndexedContainer
                 Field itemIdField = property.getClass().getDeclaredField("itemId");
                 itemIdField.setAccessible(true);
                 Object itemId = itemIdField.get(property);
@@ -117,6 +159,9 @@ public class PageContainerProvider {
         }
     }
 
+    /**
+     * instances represent current page
+     */
     private class ProxyPageContainer extends IndexedContainer {
 
         private Container.Indexed parent = null;
@@ -161,12 +206,12 @@ public class PageContainerProvider {
 
         public void hideRows(Collection<?> rows) {
             for (Object item : rows) {
-                super.removeItem(item);
+                super.removeItem(item); // super to omit overriden method
             }
         }
 
         public void showHiddenRows() {
-            super.removeAllItems();
+            super.removeAllItems(); // super to omit overriden method
             copyMultipleItemsFromParent(firstRowIdx(currentPageNumber), lastRowIdx(currentPageNumber));
         }
 
@@ -189,7 +234,7 @@ public class PageContainerProvider {
         @Override
         public Object addItem() throws UnsupportedOperationException {
             if (size() < itemsPerPage) {
-                super.addItem();
+                super.addItem(); // only when current page requires update
             }
             return parent.addItem();
         }
@@ -197,7 +242,7 @@ public class PageContainerProvider {
         @Override
         public Item addItem(Object itemId) throws UnsupportedOperationException {
             if (size() < itemsPerPage) {
-                super.addItem(itemId);
+                super.addItem(itemId); // only when current page requires update
             }
             return parent.addItem(itemId);
         }
@@ -209,6 +254,7 @@ public class PageContainerProvider {
             return parent.addContainerProperty(propertyId, type, defaultValue);
         }
 
+        // called before page change to remove unnecessary listener from parent
         private void removeParentListener() {
             if (parent instanceof Property.ValueChangeNotifier) {
                 ((Property.ValueChangeNotifier) parent).removeListener(synchronizer);
