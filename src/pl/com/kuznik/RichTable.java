@@ -32,8 +32,7 @@ import java.util.Set;
  */
 public class RichTable extends Table {
 
-    private boolean paginated = true;
-    private boolean editable = true;
+    private boolean paginated;
     private boolean selectable = true;
     private PageContainerProvider pageProvider;
     private Container originalContainer;
@@ -54,13 +53,14 @@ public class RichTable extends Table {
         setWriteThrough(false);
         setImmediate(false);
 
-        // TODO check if table is paginated and has hiding enabled
+        // enable pagination by default
+        setPaginated(true);
+
         addListener((DataSourceChangedListener) getPaginator());
         addListener((DataSourceChangedListener) getHider());
         addListener((Property.ValueChangeListener) getHider());
         addListener((ItemClickListener) getEditor());
 
-        // TODO check if table is paginated
         getPaginator().addListener((PageChangedListener) getHider());
     }
 
@@ -108,22 +108,34 @@ public class RichTable extends Table {
         super.setSelectable(selectable);
     }
 
+    public void setPaginated(boolean paginated) {
+        if (this.paginated != paginated) {
+            this.paginated = paginated;
+            if (paginated) {
+                initializePageProvider(getContainerDataSource());
+            } else {
+                super.setContainerDataSource(originalContainer);
+            }
+        }
+    }
+
+    public boolean isPaginated() {
+        return paginated;
+    }
+
     @Override
     public void setContainerDataSource(Container newDataSource) {
-        if (paginated) {
-            // TODO check instanceof Container Indexed
-            originalContainer = newDataSource;
-            pageProvider = new PageContainerProvider((Container.Indexed) newDataSource, getPaginator().getItemsPerPage());
-            super.setContainerDataSource(pageProvider.getPageContainer(getPaginator().getCurrentPage()));
-            notifyDataSourceChanged();
+        if (isPaginated()) {
+            initializePageProvider(newDataSource);
         } else {
             super.setContainerDataSource(newDataSource);
         }
+        notifyDataSourceChanged();
     }
 
     @Override
     public void sort() {
-        if (paginated) {
+        if (isPaginated()) {
             getPageProvider().sort(getSortContainerPropertyId(), isSortAscending());
             notifyDataSourceChanged();
         } else {
@@ -161,6 +173,18 @@ public class RichTable extends Table {
     private void notifyDataSourceChanged() {
         for (DataSourceChangedListener listener : getDataSourceChangeListeners()) {
             listener.dataSourceChanged();
+        }
+    }
+
+    private void initializePageProvider(Container newDataSource) {
+        originalContainer = newDataSource;
+        if (originalContainer instanceof Container.Indexed) {
+            pageProvider = new PageContainerProvider((Container.Indexed) originalContainer,
+                    getPaginator().getItemsPerPage());
+            super.setContainerDataSource(
+                    getPageProvider().getPageContainer(getPaginator().getCurrentPage()));
+        } else {
+            throw new UnsupportedOperationException("Provided container does not support pagination.");
         }
     }
 
@@ -503,7 +527,7 @@ public class RichTable extends Table {
             RichTable.this.setValue(null); // ensure notifying all PropertyChangeListeners
             RichTable.super.setSelectable(false); // use super-implementation to avoid overwriting private field
             RichTable.this.setEditable(true);
-            getWindow().showNotification("In 'Edit' mode.", "Hit RETURN to accept.");
+            getWindow().showNotification("In 'Edit' mode.", "Hit RETURN to accept or ESC to abort.");
         }
 
         private void goOutEditMode() {
